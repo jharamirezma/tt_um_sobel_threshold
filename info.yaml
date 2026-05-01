@@ -1,7 +1,7 @@
 # Tiny Tapeout project information
 project:
   title:        "tt_um_sobel_threshold"      # Project title
-  author:       "Jhon Ramirez"      # Your name
+  author:       "Jhon Ramirez & Diana Maldonado"      # Your name
   discord:      ""      # Your discord username, for communication and automatically assigning you a Tapeout role (optional)
   description:  ""      # One line description of what your project does
   language:     "Verilog" # other examples include SystemVerilog, Amaranth, VHDL, etc
