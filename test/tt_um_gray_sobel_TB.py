@@ -224,7 +224,7 @@ async def tt_um_gray_sobel_bypass(dut):
 
     # dut.VGND.value = 0
     # dut.VPWR.value = 1
-    # Inital
+    # Initial
     dut.ena.value = 0
     dut.ui_in.value = 0
 
@@ -236,7 +236,7 @@ async def tt_um_gray_sobel_bypass(dut):
     
     N = 5
     random_numbers_array = np.random.randint(0, 2**24, N, dtype=np.uint32)
-    await reset_dut(dut, 20)
+    await reset_dut(dut, 200)
 
     await FallingEdge(dut.clk)
     await Timer(20)
@@ -262,7 +262,7 @@ async def tt_um_gray_sobel_gray(dut):
 
     # dut.VGND.value = 0
     # dut.VPWR.value = 1
-    # Inital
+    # Initial
     dut.ena.value = 0
     dut.ui_in.value = 0
 
@@ -275,7 +275,7 @@ async def tt_um_gray_sobel_gray(dut):
     N = 10
     random_numbers_array = np.random.randint(0, 2**24, N, dtype=np.uint32)
 
-    await reset_dut(dut, 20)
+    await reset_dut(dut, 200)
 
     await FallingEdge(dut.clk)
     await Timer(20)
@@ -300,9 +300,9 @@ async def tt_um_gray_sobel_sobel(dut):
     # Clock cycle
     cocotb.start_soon(Clock(dut.clk, 2 * half_period, units="ns").start())
 
-    #dut.VGND.value = 0
-    #dut.VPWR.value = 1
-    # Inital
+    # dut.VGND.value = 0
+    # dut.VPWR.value = 1
+    # Initial
     dut.ena.value = 0
     dut.ui_in.value = 0
 
@@ -317,7 +317,7 @@ async def tt_um_gray_sobel_sobel(dut):
                         117, 132, 146, 125, 146, 162, 122, 145, 164, 
                         123, 147, 168, 123, 147, 169]
 
-    await reset_dut(dut, 20)
+    await reset_dut(dut, 200)
 
     await FallingEdge(dut.clk)
     await Timer(20)
@@ -346,7 +346,7 @@ async def tt_um_gray_sobel_gray_sobel(dut):
 
     # dut.VGND.value = 0
     # dut.VPWR.value = 1
-    # Inital
+    # Initial
     dut.ena.value = 0
     dut.ui_in.value = 0
 
@@ -368,7 +368,7 @@ async def tt_um_gray_sobel_gray_sobel(dut):
 
     no_rtl_result = []
 
-    await reset_dut(dut, 20) 
+    await reset_dut(dut, 200) 
 
     await FallingEdge(dut.clk)
     await Timer(20)
@@ -403,7 +403,7 @@ async def tt_um_gray_sobel_lfsr_sa(dut):
 
     # dut.VGND.value = 0
     # dut.VPWR.value = 1
-    # Inital
+    # Initial
     dut.ena.value = 0
     dut.ui_in.value = 0
 
@@ -559,7 +559,7 @@ async def tt_um_gray_sobel_lfsr_sa(dut):
 #     dut.ui_in.value = int(dut.ui_in.value) | (1 << 0)  #spi_cs_i
 
 
-# Gray + Sobel + Threshold test image
+# #Gray + Sobel + Threshold test image
 # @cocotb.test()
 # async def tt_um_gray_sobel_gray_sobel_threshold_img(dut):
 #     # Clock cycle
@@ -641,6 +641,9 @@ async def tt_um_gray_sobel_lfsr_sa(dut):
 async def tt_um_gray_sobel_gray_sobel_threshold(dut):
     cocotb.start_soon(Clock(dut.clk, 2 * half_period, units="ns").start())
 
+    # dut.VGND.value = 0
+    # dut.VPWR.value = 1
+
     dut.ena.value = 0
     dut.ui_in.value = 0
     dut.ui_in.value = (1 << 0) | (1 << 1) | (1 << 6)
@@ -648,7 +651,7 @@ async def tt_um_gray_sobel_gray_sobel_threshold(dut):
 
     N_WINDOWS = 50
 
-    await reset_dut(dut, 20)
+    await reset_dut(dut, 200)
     await FallingEdge(dut.clk)
     await Timer(20)
     dut.ui_in.value = int(dut.ui_in.value) & ~(1 << 0)

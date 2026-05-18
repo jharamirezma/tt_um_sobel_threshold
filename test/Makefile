@@ -32,9 +32,12 @@ ifeq ($(BEHAV), 1)
 	VERILOG_SOURCES += $(PWD)/../src/LFSR.sv
 	VERILOG_SOURCES += $(PWD)/../src/signature_analyzer.sv
 else
-	include $(PWD)/../postapr/Makefile.skywater
-	#COMPILE_ARGS += +define+USE_POWER_PINS
-	VERILOG_SOURCES += $(PWD)/../postapr/tt_um_gray_sobel.nl.v
+	VERILOG_SOURCES += $(PWD)/../postapr/tt_um_gray_sobel.pnl.v
+	VERILOG_SOURCES += $(PWD)/../postapr/pdk_verilog/primitives.v
+	VERILOG_SOURCES += $(PWD)/../postapr/pdk_verilog/sky130_fd_sc_hd.v
+	COMPILE_ARGS    += -DFUNCTIONAL
+    COMPILE_ARGS    += -DUNIT_DELAY=
+	COMPILE_ARGS    += -DUSE_POWER_PINS
 endif
 
 #TOPLEVEL is the name of the toplevel module in your Verilog or VHDL file
@@ -44,7 +47,7 @@ TOPLEVEL = tt_um_gray_sobel
 # MODULE is the basename of the Python test file
 # MODULE = gray_sobel_TB
 MODULE = tt_um_gray_sobel_TB
-#COMPILE_ARGS += -PUSE_POWER_PINS=1
+# COMPILE_ARGS += -PUSE_POWER_PINS=1
 
 # include cocotb's make rules to take care of the simulator setup
 # include cocotb's make rules to take care of the simulator setup
