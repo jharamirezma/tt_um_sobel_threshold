@@ -23,10 +23,10 @@ module tt_um_gray_sobel (
     logic nreset_async_i;
 
     assign nreset_async_i = rst_n;
-    assign uio_oe  = 8'b11100000;        // bits [7:5] output, bits [4:0] input
+    assign uio_oe  = 8'b10000000;        // bits [7] output, bits [6:0] input
     assign uio_out[7:0] = 8'b00000000;
 
-    wire _unused = |uio_in[7:5];
+    wire _unused = uio_in[7];
 
     //SPI interface
     logic spi_sck_i;
@@ -38,10 +38,12 @@ module tt_um_gray_sobel (
     assign spi_sdi_i = ui_in[2];
 
   //Core Control
-    logic [1:0] select_process_i;
+    logic [2:0] select_process_i;
     logic start_sobel_i;
-    assign select_process_i = ui_in[4:3];
-    assign start_sobel_i = ui_in[5];
+    logic start_threshold_i;
+    assign select_process_i = ui_in[5:3];
+    assign start_sobel_i = ui_in[6];
+    assign start_threshold_i = uio_in[6];
 
   //LFSR Control
     logic LFSR_enable_i;
@@ -58,9 +60,10 @@ module tt_um_gray_sobel (
     logic sa_en_i;
     logic sa_clear_i;
     logic frame_done_i;
-    assign sa_en_i = ui_in[6];
-    assign frame_done_i = ui_in[7];
+    assign sa_en_i = ui_in[7];
     assign sa_clear_i = uio_in[4];
+    assign frame_done_i = uio_in[5];
+  
 
     logic nreset_i; 
     spi_dep_async_nreset_synchronizer nreset_sync0 (
@@ -70,7 +73,7 @@ module tt_um_gray_sobel (
       .nreset_o(nreset_i)
     );
 
-    logic [1:0] select_process_i_sync;
+    logic [2:0] select_process_i_sync;
     spi_dep_signal_synchronizer sgnl_sync0 (
       .clk_i(clk),
       .nreset_i(nreset_i),
@@ -85,9 +88,31 @@ module tt_um_gray_sobel (
         .signal_o(select_process_i_sync[1])
     );
 
-    
-    logic LFSR_enable_i_sync;
     spi_dep_signal_synchronizer sgnl_sync2 (
+        .clk_i(clk),
+        .nreset_i(nreset_i),
+        .async_signal_i(select_process_i[2]),
+        .signal_o(select_process_i_sync[2])
+    );
+
+    logic start_sobel_i_sync;
+        spi_dep_signal_synchronizer sgnl_sync3 (
+        .clk_i(clk),
+        .nreset_i(nreset_i),
+        .async_signal_i(start_sobel_i),
+        .signal_o(start_sobel_i_sync)
+    );
+
+    logic start_threshold_i_sync;
+        spi_dep_signal_synchronizer sgnl_sync4 (
+        .clk_i(clk),
+        .nreset_i(nreset_i),
+        .async_signal_i(start_threshold_i),
+        .signal_o(start_threshold_i_sync)
+    );
+
+    logic LFSR_enable_i_sync;
+    spi_dep_signal_synchronizer sgnl_sync5 (
         .clk_i(clk),
         .nreset_i(nreset_i),
         .async_signal_i(LFSR_enable_i),
@@ -95,7 +120,7 @@ module tt_um_gray_sobel (
     );
 
     logic seed_stop_i_sync;
-    spi_dep_signal_synchronizer sgnl_sync3 (
+    spi_dep_signal_synchronizer sgnl_sync6 (
         .clk_i(clk),
         .nreset_i(nreset_i),
         .async_signal_i(seed_stop_i),
@@ -103,7 +128,7 @@ module tt_um_gray_sobel (
     );
     
     logic lfsr_en_i_sync;
-    spi_dep_signal_synchronizer sgnl_sync4 (
+    spi_dep_signal_synchronizer sgnl_sync7 (
         .clk_i(clk),
         .nreset_i(nreset_i),
         .async_signal_i(lfsr_en_i),
@@ -111,7 +136,7 @@ module tt_um_gray_sobel (
     );
 
     logic sa_en_i_sync;
-    spi_dep_signal_synchronizer sgnl_sync5 (
+    spi_dep_signal_synchronizer sgnl_sync8 (
         .clk_i(clk),
         .nreset_i(nreset_i),
         .async_signal_i(sa_en_i),
@@ -119,7 +144,7 @@ module tt_um_gray_sobel (
     );
 
     logic frame_done_i_sync;
-    spi_dep_signal_synchronizer sgnl_sync6 (
+    spi_dep_signal_synchronizer sgnl_sync9 (
         .clk_i(clk),
         .nreset_i(nreset_i),
         .async_signal_i(frame_done_i),
@@ -127,7 +152,7 @@ module tt_um_gray_sobel (
     );
 
     logic lfsr_mode_sel_i_sync;
-    spi_dep_signal_synchronizer sgnl_sync7 (
+    spi_dep_signal_synchronizer sgnl_sync10 (
         .clk_i(clk),
         .nreset_i(nreset_i),
         .async_signal_i(lfsr_mode_sel_i),
@@ -135,7 +160,7 @@ module tt_um_gray_sobel (
     );
 
     logic sa_clear_i_sync;
-    spi_dep_signal_synchronizer sgnl_sync8 (
+    spi_dep_signal_synchronizer sgnl_sync11 (
         .clk_i(clk),
         .nreset_i(nreset_i),
         .async_signal_i(sa_clear_i),
@@ -228,7 +253,8 @@ module tt_um_gray_sobel (
       .clk_i(clk),
       .nreset_i(nreset_i),
       .select_i(select_process_i_sync),
-      .start_sobel_i(start_sobel_i),
+      .start_sobel_i(start_sobel_i_sync),
+      .start_threshold_i (start_threshold_i_sync), 
       .px_rdy_i(in_px_rdy),
       .in_pixel_i(input_pixel),
       .out_pixel_o(output_px),
@@ -260,8 +286,7 @@ module tt_um_gray_sobel (
         .signature_o(sa_signature)
     );
 
-    assign uo_out[1:0] = select_process_i_sync;
-    assign uo_out[2]   = ena;
+    assign uo_out[2:0] = select_process_i_sync;
     assign uo_out[3]   = spi_sdo_o;
     assign uo_out[4]   = lfsr_done;
     assign uo_out[7:5] = LEDs;

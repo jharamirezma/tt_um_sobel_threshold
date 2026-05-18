@@ -23,6 +23,7 @@ ifeq ($(BEHAV), 1)
 	VERILOG_SOURCES += $(PWD)/../src/tt_um_gray_sobel.sv
 	VERILOG_SOURCES += $(PWD)/../src/top_gray_sobel.sv
 	VERILOG_SOURCES += $(PWD)/../src/sobel_control.sv
+	VERILOG_SOURCES += $(PWD)/../src/ema_threshold.sv
 	VERILOG_SOURCES += $(PWD)/../src/sobel_core.sv
 	VERILOG_SOURCES += $(PWD)/../src/gray_scale_core.sv
 	VERILOG_SOURCES += $(PWD)/../src/async_nreset_synchronizers.sv

@@ -10,23 +10,34 @@ from cocotb.triggers import Timer
 from matplotlib import pyplot as plt
 
 ## Inputs
-## spi_cs_i = ui_in[0]
-## spi_sck_i = ui_in[1]
-## spi_sdi_i = ui_in[2]
-## select_i = ui_in[4:3]
-## start_sobel_i = ui_in[5];
-## LFSR_enable_i = uio_in[0];
-## seed_stop_i = uio_in[1];
-## assign lfsr_en_i = uio_in[2];
+## spi_cs_i          = ui_in[0]
+## spi_sck_i         = ui_in[1]
+## spi_sdi_i         = ui_in[2]
+## select_i[2:0]     = ui_in[5:3]
+## start_sobel_i     = ui_in[6]
+## sa_en_i           = ui_in[7]
+## LFSR_enable_i     = uio_in[0]
+## seed_stop_i       = uio_in[1]
+## lfsr_en_i         = uio_in[2]
+## lfsr_mode_sel_i   = uio_in[3]
+## sa_clear_i        = uio_in[4]
+## frame_done_i      = uio_in[5]
+## start_threshold_i = uio_in[6]
+## (unused)          = uio_in[7]
 
 ## Outputs
-## uo_out[3] = spi_sdo_o;
+## uo_out[2:0] = select_process_i_sync
+## uo_out[3]   = spi_sdo_o 
+## uo_out[4]   = lfsr_done
+## uo_out[7:5] = LEDs {sa_en, LFSR_enable, lfsr_mode_sel}
 
 ## Select process
-## 00 -> Gray + sobel
-## 01 -> Only sobel
-## 10 -> Only gray
-## 11 -> Bypass
+## 3'b000 -> RGB  -> Gray -> Sobel -> Threshold
+## 3'b001 -> Gray -> Sobel -> Threshold
+## 3'b010 -> RGB  -> Gray -> Sobel
+## 3'b011 -> Gray -> Sobel
+## 3'b100 -> RGB  -> Gray
+## 3'b101 -> Bypass
 
 ## Select input
 ## 0 -> SPI pixel
@@ -34,14 +45,14 @@ from matplotlib import pyplot as plt
 
 
 # Parameters
-RPI_SPI_CLK = 66/2
+RPI_SPI_CLK = 66/22
 ADC_SPI_CLK = 50
 DUTY_CYCLE = 0.5
 STREAM_DATA_WIDTH = 24
 clock_period = 1 / ADC_SPI_CLK  # Clock period in seconds
 half_period = clock_period * DUTY_CYCLE
 PIXEL_SIM = 10   # Number of pixels for testing
-select_process = 3
+select_process = 0
 
 def get_neighbors(input_array, index, width):
     neighbors = []
@@ -55,14 +66,14 @@ def get_neighbors(input_array, index, width):
     return neighbors
 
 
-def get_neighbor_array(image, input_arrayput):
+def get_neighbor_array(image, input_array):
     height, width, _ = image.shape
     array_neighbors = []
     neighbor_count = 0 
     for y in range(1, height - 1):
         for x in range(1, width - 1):
             i = y * width + x
-            neighbors = get_neighbors(input_arrayput, i, width)
+            neighbors = get_neighbors(input_array, i, width)
             array_neighbors.append(neighbors)
             neighbor_count += 1
     return array_neighbors
@@ -156,6 +167,38 @@ async def spi_transfer_pi(data, dut):
 
     return swap_bytes(data_rx_rpi)
 
+async def spi_transfer_chunk(pixel_list, dut):
+    """Envía una lista de píxeles en un solo bloque SPI sin soltar CS"""
+    results = []
+    
+    await Timer(3)
+    # CS=0 una sola vez para todo el chunk
+    dut.ui_in.value = (int(dut.ui_in.value) & ~0x07) | 0x02  # cs=0, sck=1, sdi=0
+
+    for pixel in pixel_list:
+        data_tx = swap_bytes(int(pixel, 2))
+        data_rx = 0
+
+        for i in range(STREAM_DATA_WIDTH):
+            sdi = (data_tx >> (STREAM_DATA_WIDTH - 1 - i)) & 0x01
+            dut.ui_in.value = (int(dut.ui_in.value) & ~0x07) | (sdi << 2)
+            await Timer(RPI_SPI_CLK)
+            try:
+                read_bit = (int(dut.uo_out.value) >> 3) & 1
+            except ValueError:
+                read_bit = 0
+            data_rx |= read_bit << (STREAM_DATA_WIDTH - 1 - i)
+            dut.ui_in.value = (int(dut.ui_in.value) & ~0x03) | 0x02
+            await Timer(RPI_SPI_CLK)
+
+        # Pausa entre palabras pero SIN soltar CS
+        for _ in range(6):
+            await Timer(RPI_SPI_CLK)
+
+        results.append(swap_bytes(data_rx))
+
+    return results
+
 async def int_to_bytes_le(val, n_bytes):
     return [(val >> (8*i)) & 0xFF for i in range(n_bytes)]
  
@@ -186,7 +229,7 @@ async def tt_um_gray_sobel_bypass(dut):
     dut.ui_in.value = 0
 
     # Selection = 3
-    dut.ui_in.value = (1 << 3) | (1 << 4) | (1 << 1) | (1 << 0)
+    dut.ui_in.value = (1 << 3) | (1 << 5) | (1 << 1) | (1 << 0)
     
     # NOT LFSR
     dut.uio_in.value = 0   
@@ -224,7 +267,7 @@ async def tt_um_gray_sobel_gray(dut):
     dut.ui_in.value = 0
 
     # Selection = 2 --> Only gray
-    dut.ui_in.value = (1 << 4) | (1 << 0) | (1 << 1)
+    dut.ui_in.value = (1 << 5) | (1 << 0) | (1 << 1)
     
     # NOT LFSR
     dut.uio_in.value = 0
@@ -264,7 +307,7 @@ async def tt_um_gray_sobel_sobel(dut):
     dut.ui_in.value = 0
 
     # Selection = 1 --> Only sobel
-    dut.ui_in.value = (1 << 3) | (1 << 0) | (1 << 1) | (1 << 5)
+    dut.ui_in.value = (1 << 3) | (1 << 4) | (1 << 0) | (1 << 1) | (1 << 6)
     
     # NOT LFSR
     dut.uio_in.value = 0
@@ -308,7 +351,7 @@ async def tt_um_gray_sobel_gray_sobel(dut):
     dut.ui_in.value = 0
 
     # Selection = 0 --> Gray + Sobel
-    dut.ui_in.value =  (1 << 0) | (1 << 1) | (1 << 5)  #spi_cs_i, spi_sck_i, start_sobel_i
+    dut.ui_in.value =  (1 << 4) | (1 << 0) | (1 << 1) | (1 << 6)  #spi_cs_i, spi_sck_i, start_sobel_i
     
     # NOT LFSR
     dut.uio_in.value = 0
@@ -335,7 +378,7 @@ async def tt_um_gray_sobel_gray_sobel(dut):
     for i, data in enumerate(pixel_rgb_array[:36]):
         read_data = await spi_transfer_pi(int(data), dut)
         received_bytes = await int_to_bytes_le(read_data, 5)
-        cocotb.log.info(f"Pixel {i} sended: {data}")
+        cocotb.log.info(f"Pixel {i} sended: {int(data)}")
 
         if i >= 9 and (i - 9) % 3 == 0:
             cocotb.log.info(f"Convolution output: {((i - 9) // 3) + 1}: {received_bytes}")
@@ -365,7 +408,7 @@ async def tt_um_gray_sobel_lfsr_sa(dut):
     dut.ui_in.value = 0
 
     # Selection = 2 --> Only gray
-    dut.ui_in.value = int(dut.ui_in.value) | (1 << 4) | (1 << 1) | (1 << 6)  # select, CS active, SA enable
+    dut.ui_in.value = int(dut.ui_in.value) | (1 << 5) | (1 << 1) | (1 << 7)  # select, CS active, SA enable
 
     # LFSR: Enable and enable seed/stop load
     dut.uio_in.value = 0b00000001  # Enable LFSR, rest disabled
@@ -414,3 +457,178 @@ async def tt_um_gray_sobel_lfsr_sa(dut):
     await Timer(20)
     dut.uio_in.value = int(dut.uio_in.value) & ~(1 << 4)
     await RisingEdge(dut.clk)
+
+# # Gray + sobel test image
+# @cocotb.test()
+# async def tt_um_gray_sobel_gray_sobel_img(dut):
+#     # Clock cycle
+#     cocotb.start_soon(Clock(dut.clk, 2 * half_period, units="ns").start())
+
+#     # dut.VGND.value = 0
+#     # dut.VPWR.value = 1
+#     # Inital
+#     dut.ena.value = 0
+#     dut.ui_in.value = 0
+
+#     # Selection = 0 --> Gray + Sobel
+#     dut.ui_in.value =  (1 << 4) |(1 << 0) | (1 << 1) | (1 << 6)  #spi_cs_i, spi_sck_i, start_sobel_i
+    
+#     # NOT LFSR
+#     dut.uio_in.value = 0
+    
+#     N = 4
+
+#     no_rtl_result = []
+
+#     await reset_dut(dut, 20) 
+
+#     await FallingEdge(dut.clk)
+#     await Timer(20)
+#     dut.ui_in.value = int(dut.ui_in.value) & ~(1 << 0) #spi_cs_i
+#     await Timer(20)
+
+
+#     array_neighbors = get_neighbor_array(img_original, array_input_image)
+
+#     # for i, data in enumerate(pixel_rgb_array[:4]):
+#     #     cocotb.log.info(f"Pixel {i} RGB: {[int(b, 2) for b in data]}")
+#     output_pixels = []
+#     counter_pixels = 0
+
+#     CHUNK_SIZE = 1024
+
+#     for i, neighbors in enumerate(array_neighbors):
+#         if i%10000 == 0:
+#             cocotb.log.info(f'Pixels:{i}')
+       
+#         pixel_list = neighbors if i == 0 else neighbors[6:]
+
+#         for chunk_start in range(0, len(pixel_list), CHUNK_SIZE):
+#             chunk = pixel_list[chunk_start:chunk_start + CHUNK_SIZE]
+#             read_data_list = await spi_transfer_chunk(chunk, dut)
+
+#             for read_data in read_data_list:
+#                 if counter_pixels >= 9 and (counter_pixels - 9) % 3 == 0:
+#                     received_bytes = await int_to_bytes_le(read_data, 5)
+#                     output_pixels.append(received_bytes[0])
+#                 counter_pixels += 1
+#         await Timer(20)
+
+#     with open('output_image.txt', 'w') as file_out:
+#         for pixel_p in output_pixels:
+#             file_out.write(f"{pixel_p}\n")
+
+#     # read file
+    
+#     if select_process == 3:
+#         with open('output_image.txt', 'r') as f: 
+#             out_hw_txt = f.read().splitlines()
+
+#         array_out = np.array(out_hw_txt)
+
+#         encode_image = []
+#         for ind, pixel in enumerate(array_out):
+#             value = int(pixel, 2)
+#             red = ((value >> 16) & 0xFF)
+#             green = ((value >> 8) & 0xFF)
+#             blue = (value & 0xFF)
+#             row = [red, green, blue]
+#             encode_image.append(row)
+#         array_out_reshape = np.reshape(encode_image, (240, 320, 3))        
+#     else:
+#         with open('output_image.txt', 'r') as f: 
+#             out_hw_txt = f.read().splitlines()  
+
+#         # Arrange pixels
+#         array_out = np.array(out_hw_txt)
+#         if select_process == 2:
+#             array_out_reshape = np.reshape(array_out, (240, 320))
+#         else:   
+#             array_out_reshape = np.reshape(array_out, (240-2, 320-2))
+        
+#     array_out = array_out_reshape.astype(np.uint8)
+#     cv2.imwrite('output_image.jpg', array_out)
+#     out_image = cv2.imread('output_image.jpg')
+#     plt.imshow(out_image)
+#     plt.show()
+            
+
+#     await Timer(20)
+#     dut.ui_in.value = int(dut.ui_in.value) | (1 << 0)  #spi_cs_i
+#     await Timer(20)
+#     dut.ui_in.value = int(dut.ui_in.value) | (1 << 0)  #spi_cs_i
+
+
+# Gray + Sobel + Threshold test image
+@cocotb.test()
+async def tt_um_gray_sobel_gray_sobel_threshold_img(dut):
+    # Clock cycle
+    cocotb.start_soon(Clock(dut.clk, 2 * half_period, units="ns").start())
+
+    # Initial
+    dut.ena.value = 0
+    dut.ui_in.value = 0
+
+    # Selection = 3'b000 --> Gray + Sobel + Threshold
+    # ui_in[5:3] = 000, start_sobel_i = ui_in[6] = 1
+    dut.ui_in.value = (1 << 0) | (1 << 1) | (1 << 6)  # spi_cs_i, spi_sck_i, start_sobel_i
+    #                  ui_in[3:5] = 000 → select = 3'b000 (already 0)
+
+    # NOT LFSR, start_threshold_i = uio_in[6] = 1
+    dut.uio_in.value = (1 << 6)  # start_threshold_i active
+
+    no_rtl_result = []
+
+    await reset_dut(dut, 20)
+
+    await FallingEdge(dut.clk)
+    await Timer(20)
+    dut.ui_in.value = int(dut.ui_in.value) & ~(1 << 0)  # spi_cs_i active
+    await Timer(20)
+
+    array_neighbors = get_neighbor_array(img_original, array_input_image)
+
+    output_pixels = []
+    counter_pixels = 0
+
+    CHUNK_SIZE = 1024
+
+    for i, neighbors in enumerate(array_neighbors):
+        if i % 10000 == 0:
+            cocotb.log.info(f'Pixels: {i}')
+
+        pixel_list = neighbors if i == 0 else neighbors[6:]
+
+        for chunk_start in range(0, len(pixel_list), CHUNK_SIZE):
+            chunk = pixel_list[chunk_start:chunk_start + CHUNK_SIZE]
+            read_data_list = await spi_transfer_chunk(chunk, dut)
+
+            for read_data in read_data_list:
+                if counter_pixels >= 9 and (counter_pixels - 9) % 3 == 0:
+                    received_bytes = await int_to_bytes_le(read_data, 5)
+                    # Output is binary: 0 or 255
+                    output_pixels.append(received_bytes[0])
+                counter_pixels += 1
+        await Timer(20)
+
+    with open('output_image_threshold.txt', 'w') as file_out:
+        for pixel_p in output_pixels:
+            file_out.write(f"{pixel_p}\n")
+
+    # Read and save image
+    with open('output_image_threshold.txt', 'r') as f:
+        out_hw_txt = f.read().splitlines()
+
+    array_out = np.array(out_hw_txt).astype(np.uint8)
+    array_out_reshape = np.reshape(array_out, (240 - 2, 320 - 2))
+
+    cv2.imwrite('output_image_threshold.jpg', array_out_reshape)
+    out_image = cv2.imread('output_image_threshold.jpg')
+    plt.imshow(out_image, cmap='gray')
+    plt.title('Gray + Sobel + EMA Threshold')
+    plt.show()
+
+    await Timer(20)
+    dut.ui_in.value = int(dut.ui_in.value) | (1 << 0)   # spi_cs_i disable
+    await Timer(20)
+    dut.ui_in.value = int(dut.ui_in.value) | (1 << 0)

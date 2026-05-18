@@ -59,6 +59,10 @@ assign abs_x_grad = (x_grad[MAX_GRADIENT_WIDTH]? ~x_grad+1 : x_grad);  //Absolut
 assign abs_y_grad = (y_grad[MAX_GRADIENT_WIDTH]? ~y_grad+1 : y_grad);          
 assign sum_xy_grad = (abs_x_grad + abs_y_grad);    
 
-assign out_sobel_core_o = (|sum_xy_grad[MAX_GRADIENT_SUM_WIDTH:PIXEL_WIDTH_OUT])? MAX_PIXEL_VAL-1 : sum_xy_grad[PIXEL_WIDTH_OUT-1:0];  //Overflow
+assign out_sobel_core_o = (|sum_xy_grad[MAX_GRADIENT_SUM_WIDTH:PIXEL_WIDTH_OUT]) ?
+                           MAX_PIXEL_VAL-1 :
+                           sum_xy_grad[PIXEL_WIDTH_OUT-1:0];
+
+
 
 endmodule
