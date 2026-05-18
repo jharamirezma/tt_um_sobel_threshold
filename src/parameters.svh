@@ -9,6 +9,7 @@ localparam MAX_PIXEL_VAL = 1<< PIXEL_WIDTH_OUT;                     //Binarizati
 localparam MAX_GRADIENT_SUM_WIDTH = 11;    
 localparam MAX_RESOLUTION_BITS = 24;
 localparam ZERO_PAD_WIDTH = MAX_PIXEL_BITS - PIXEL_WIDTH_OUT;
+localparam K = 4;                                                   // shift factor: alpha = 1/2^K
 localparam K_SLOW = 6;
 localparam K_FAST = 3;
 
