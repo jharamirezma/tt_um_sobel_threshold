@@ -47,8 +47,8 @@ module ema_threshold (
 
     // ── Fixed-point conversion of input pixel ────────────────
     logic signed [FP_W:0] pixel_fp;
-    assign pixel_fp = $signed({{(FP_W-PIXEL_WIDTH_OUT){1'b0}}, in_px_i}) <<< K_SLOW;
-
+    assign pixel_fp = $signed({{(FP_W-PIXEL_WIDTH_OUT+1){1'b0}}, in_px_i}) <<< K_SLOW;
+    
     // ── Combinational computation ────────────────────────────
 
     // diff = pixel_fp - mu_fp  (signed fixed-point)
@@ -79,11 +79,11 @@ module ema_threshold (
             sigma_fp <= FP_W'(20) <<< K_SLOW;
         end else if (px_rdy_i && start_threshold_i) begin
             if (big_change) begin
-                mu_fp    <= mu_fp    + (diff     >>> K_FAST);
-                sigma_fp <= sigma_fp + (err_sigma >>> K_FAST);
+                mu_fp    <= FP_W'(mu_fp    + (diff     >>> K_FAST));
+                sigma_fp <= FP_W'(sigma_fp + (err_sigma >>> K_FAST));
             end else begin
-                mu_fp    <= mu_fp    + (diff     >>> K_SLOW);
-                sigma_fp <= sigma_fp + (err_sigma >>> K_SLOW);
+                mu_fp    <= FP_W'(mu_fp    + (diff     >>> K_SLOW));
+                sigma_fp <= FP_W'(sigma_fp + (err_sigma >>> K_SLOW));
             end
         end
     end
