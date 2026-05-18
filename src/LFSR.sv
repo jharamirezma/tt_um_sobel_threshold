@@ -25,7 +25,7 @@ module LFSR(
     
     assign config_data_o = config_i ? stop_reg : seed_reg;
 
-    always@(posedge clk_i or negedge nreset_i) begin
+    always_ff@(posedge clk_i or negedge nreset_i) begin
         if(!nreset_i) begin 
             seed_reg <= 24'd0;
             stop_reg <= 24'd0;
