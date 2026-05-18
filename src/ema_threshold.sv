@@ -77,13 +77,13 @@ module ema_threshold (
     logic signed [FP_W:0]          err_sigma;   // abs_diff - sigma_fp
     logic        [PIXEL_WIDTH_OUT-1:0] mu_int;    // integer part of mu
     logic        [PIXEL_WIDTH_OUT-1:0] sigma_int; // integer part of sigma
-    logic        [PIXEL_WIDTH_OUT:0]   T_sum;     // mu_int + 2*sigma_int (overflow bit)
+    logic        [PIXEL_WIDTH_OUT+1:0]   T_sum;     // mu_int + 2*sigma_int (overflow bit)
     logic        [PIXEL_WIDTH_OUT-1:0] T;         // threshold saturated to MAX_VAL
 
     // ── Fixed-point conversion of input pixel ────────────────
     // Scale pixel_in to fixed-point by shifting K bits left
     logic signed [FP_W:0] pixel_fp;
-    assign pixel_fp = $signed({1'b0, in_px_i}) <<< K;
+    assign pixel_fp = $signed({{(FP_W-PIXEL_WIDTH_OUT){1'b0}}, in_px_i}) <<< K;
 
     // ── Combinational computation ────────────────────────────
 
@@ -102,9 +102,9 @@ module ema_threshold (
 
     // T = mu_int + 2*sigma_int  (shift left 1 = x2, no multiplier)
     // Extra overflow bit detects saturation
-    assign T_sum = {1'b0, mu_int} + {1'b0, sigma_int, 1'b0};
-    assign T     = T_sum[PIXEL_WIDTH_OUT] ? MAX_VAL : T_sum[PIXEL_WIDTH_OUT-1:0];
-
+    assign T_sum = {2'b00, mu_int} + {1'b0, sigma_int, 1'b0};
+    assign T     = T_sum[PIXEL_WIDTH_OUT+1] || T_sum[PIXEL_WIDTH_OUT] ? MAX_VAL : T_sum[PIXEL_WIDTH_OUT-1:0];
+    
     // ── EMA register update ──────────────────────────────────
     always_ff @(posedge clk_i or negedge nreset_i) begin
         if (!nreset_i) begin
