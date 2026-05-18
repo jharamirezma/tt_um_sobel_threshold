@@ -1,0 +1,121 @@
+## include this in your normal cocotb Makefile in place of standard cocotb
+## include to support waveform dumping with SIM=vcs
+
+## To select between *.vcd and *.vpd waveform dumps, set WAVES=<VCD|VPD>
+## variable. This variable can be an environmental varaiable, a variable
+## defined in the Makefile, or a variable passed to make.
+
+# TFIPC: Too few instance port connections
+# WUPD: UDP Previously declared (when call multi vth tsmc65 std cells functional verilog)
+# WSUM: Illegal negative timing check (When negative timing window is applied to latch cell in tsmc65)
+# SDFCOM_ANICD: Adjust Negative INTERCONNECT DELAY
+# SDFCOM_CFTC: Cannot find timing check (recovery & removal, sdf version problem)
+# SDFCOM_NTCDTL: NTC Delay is larger than ModPath Delay (Timing check line of latches of scan cells in tsmc65)
+WARN_OPTS   := +warn=all,noTFIPC,noWUPD,noWSUM,noSDFCOM_NL,noSDFCOM_ANICD,noSDFCOM_CFTC,noSDFCOM_NTCDTL
+
+# NS: Null statement
+# ZERO: Zero delay in design
+# IWU: Implicit wire is used (tsmc65 std cell, memory code lint log)
+# OUDPE: UDP Entries Overlap (tsmc65 std cell, memory code lint log)
+# UI: Unused Input
+# ONGS: Output never get sets (output has never been assigned)
+# PCTIO-L: Ports coerced to inout ( happens output is used for cell's input)
+# VNGS: Variables never gets set (tsmc65 std, memory variable)
+# SVA-ICP: Implication in cover property
+# SVA-CE: Complex expression found
+# SVA-DIU: Disable iff used
+# SVA-NSVU: Non-sampled variable used
+LINT_OPTS   := +lint=all,noNS,noZERO,noIWU,noOUDPE,noUI,noONGS,noPCTIO-L,noVNGS,noSVA-ICP,noSVA-CE,noSVA-DIU,noSVA-NSVU
+VCS_OPTS    := -kdb -notice -debug_access+all -debug_region+cell+encrypt -lca $(WARN_OPTS) $(LINT_OPTS) -l simv.log.$(DATE)
+
+COMPILE_ARGS += $(VCS_OPTS)
+
+SIM_FOLDER=$(TOPLEVEL)_$(BUILD_STAGE)
+
+ifeq ($(SIM),vcs)
+COMPILE_ARGS += -debug_access -top $(TOPLEVEL)
+
+ifneq ($(WAVES),)
+VERILOG_SOURCES += $(PWD)/$(SIM_FOLDER)/vcs_dump.sv
+COMPILE_ARGS += -top vcs_dump -debug_access+all+dmptf -debug_region+cell
+
+ifeq ($(WAVES),FSDB)
+SIM_ARGS += +COCOTB_DUMP_FSDB
+FSDB_FILE=$(SIM_FOLDER)/$(TOPLEVEL).fsdb
+endif # ifeq ($(WAVES),VPD)
+
+endif # ifneq ($(WAVES),)
+
+ifneq ($(BUILD_STAGE),presyn)
+VERILOG_SOURCES += $(PWD)/$(SIM_FOLDER)/vcs_support.sv
+COMPILE_ARGS += -top vcs_support +neg_tchk -negdelay
+endif # ifneq ($(BUILD_STAGE),presyn)
+
+endif # ifeq ($(SIM,vcs))
+
+
+#SDF Sufix
+ifeq ($(CORNER),bc)
+	SDF_SUFIX = rcff_0p880_m40_pcff_cmin
+endif
+
+ifeq ($(CORNER),tc)
+	SDF_SUFIX = tttt_0p800_25_tttt_ctyp
+endif
+
+ifeq ($(CORNER),wc)
+	SDF_SUFIX = rcss_0p720_125_pcss_cmax
+endif
+
+
+# include cocotb's make rules to take care of the simulator setup
+include $(shell cocotb-config --makefiles)/Makefile.sim
+
+
+$(PWD)/$(SIM_FOLDER)/vcs_dump.sv:Makefile
+	if [ ! -d $(SIM_FOLDER) ]; then mkdir -p $(SIM_FOLDER); fi
+	echo 'module vcs_dump;' > $@
+	echo '    initial begin' >> $@
+	echo '        if ($$test$$plusargs("COCOTB_DUMP_FSDB")) begin' >> $@
+	echo '            $$fsdbDumpfile("$(FSDB_FILE)");' >> $@
+	echo '            $$fsdbDumpvars(0, $(TOPLEVEL), "+mda", "+all", "+trace_process");' >> $@
+	echo '            $$vcdplusmemon();' >> $@
+	echo '        end' >> $@
+	echo '    end' >> $@
+	echo 'endmodule' >> $@
+
+$(PWD)/$(SIM_FOLDER)/vcs_support.sv:
+	echo $(TOPLEVEL_SDF)
+	echo 'module vcs_support;' > $@
+	echo '    initial begin' >> $@
+	echo '    	  //$$set_gate_level_monitoring("on");' >> $@
+	echo '        //$$sdf_annotate("$(TOPLEVEL_SDF)", $(TOPLEVEL).design_kp,"$(TOPLEVEL_SDF_CFG)");' >> $@
+	echo '    end' >> $@
+	echo 'endmodule' >> $@
+
+CACHE_FILE := .var_cache
+.PHONY: check_conf
+
+# Define the LAST_CORNER variable
+LAST_CORNER=$(shell if test -f $(CACHE_FILE); then cat $(CACHE_FILE); else echo ""; fi)
+
+check_conf:
+	@if [ "$(CORNER)" != "$(LAST_CORNER)" ]; then \
+		echo "VAR has changed! Regenerating $(OUTPUT_FILE)..."; \
+		rm -f $(PWD)/$(SIM_FOLDER)/vcs_support.sv; \
+		# Add additional regeneration steps here \
+	fi;
+	@echo "Updating $(CACHE_FILE) with VAR=$(CORNER)";
+	@echo $(CORNER) > $(CACHE_FILE)
+
+clean::
+	-@rm -rf DVEfiles
+	-@rm -rf *.vpd *.vcd
+	-@rm -rf __pycache__
+	-@rm -rf *.xml
+	-@rm -rf *.log
+	-@rm -rf *.fsdb
+	-@rm -rf $(FSDB_FILE)
+	-@rm -rf $(PWD)/vcs_dump.sv
+	-@rm -rf $(PWD)/vcs_support.sv
+	-@rm -rf $(PWD)/$(TOPLEVEL).sdf

@@ -1,43 +1,3 @@
-// ================================================================
-//  ema_threshold.sv
-//
-//  Adaptive threshold based on EMA (Exponential Moving Average)
-//  Designed to connect directly after sobel_control output.
-//
-//  Interface matches sobel_control:
-//    - clk_i    / nreset_i  (same clock domain)
-//    - px_rdy_i             (connected to px_rdy_o from sobel_control)
-//    - in_px_i              (connected to out_px_sobel_o from sobel_control)
-//    - start_threshold_i    (enable signal — active high)
-//    - px_rdy_o             (output valid pulse)
-//    - out_px_o             (binarized pixel: 0 or MAX_VAL)
-//
-//  Algorithm (per valid pixel, when start_threshold_i = 1):
-//
-//    -- Fixed-point format Q(PIXEL_WIDTH_OUT).(K) --
-//    pixel_fp  = pixel_in << K
-//    diff      = pixel_fp - mu_fp              (signed)
-//    mu_fp    += diff >>> K                    (arithmetic shift)
-//    abs_diff  = |diff|
-//    err_sigma = abs_diff - sigma_fp
-//    sigma_fp += err_sigma >>> K               (arithmetic shift)
-//    mu_int    = mu_fp >> K                    (integer part)
-//    sigma_int = sigma_fp >> K
-//    T         = mu_int + 2*sigma_int          (saturated to MAX_VAL)
-//    out       = (pixel_in >= T) ? MAX : 0
-//
-//  Features:
-//    - No large accumulators -- only (PIXEL_WIDTH_OUT + K) bit registers
-//    - Resolution-independent (no dependency on image size)
-//    - Latency: 1 clock cycle
-//    - K defined in parameters.svh (must be power of 2)
-//
-//  Reference:
-//    Niblack, W. "An Introduction to Digital Image Processing"
-//    Prentice-Hall, 1986, pp. 115-116.
-//    T = mu + k*sigma applied globally over Sobel gradient magnitude.
-// ================================================================
-
 `ifdef COCOTB_SIM
   `include "../src/parameters.svh"
 `else
@@ -62,11 +22,10 @@ module ema_threshold (
     localparam logic [PIXEL_WIDTH_OUT-1:0] MAX_VAL = {PIXEL_WIDTH_OUT{1'b1}};  // 255
     localparam logic [PIXEL_WIDTH_OUT-1:0] ZERO    = {PIXEL_WIDTH_OUT{1'b0}};  // 0
 
-    // ── Fixed-point format Q(PIXEL_WIDTH_OUT).(K) ────────────
-    // FP_W = PIXEL_WIDTH_OUT + K
-    // Upper PIXEL_WIDTH_OUT bits = integer part
-    // Lower K bits               = fractional part (precision across shifts)
-    localparam int FP_W = PIXEL_WIDTH_OUT + K;
+    // ── Fixed-point format Q(PIXEL_WIDTH_OUT).(K_SLOW) ───────
+    // K_SLOW is the base precision
+    // K_FAST must be < K_SLOW (both defined in parameters.svh)
+    localparam int FP_W = PIXEL_WIDTH_OUT + K_SLOW;
 
     logic signed [FP_W-1:0] mu_fp;        // mean  in fixed-point
     logic signed [FP_W-1:0] sigma_fp;     // sigma in fixed-point
@@ -77,13 +36,18 @@ module ema_threshold (
     logic signed [FP_W:0]          err_sigma;   // abs_diff - sigma_fp
     logic        [PIXEL_WIDTH_OUT-1:0] mu_int;    // integer part of mu
     logic        [PIXEL_WIDTH_OUT-1:0] sigma_int; // integer part of sigma
-    logic        [PIXEL_WIDTH_OUT+1:0]   T_sum;     // mu_int + 2*sigma_int (overflow bit)
+    logic        [PIXEL_WIDTH_OUT+1:0] T_sum;     // mu_int + 2*sigma_int (overflow bits)
     logic        [PIXEL_WIDTH_OUT-1:0] T;         // threshold saturated to MAX_VAL
 
+    // ── Dual-speed: detect abrupt scene change ────────────────
+    // big_change = |pixel - mu| > 4*sigma
+    // abs_diff integer part vs sigma_int << 2  (x4, no multiplier)
+    logic [PIXEL_WIDTH_OUT-1:0] abs_diff_int;
+    logic                       big_change;
+
     // ── Fixed-point conversion of input pixel ────────────────
-    // Scale pixel_in to fixed-point by shifting K bits left
     logic signed [FP_W:0] pixel_fp;
-    assign pixel_fp = $signed({{(FP_W-PIXEL_WIDTH_OUT){1'b0}}, in_px_i}) <<< K;
+    assign pixel_fp = $signed({{(FP_W-PIXEL_WIDTH_OUT){1'b0}}, in_px_i}) <<< K_SLOW;
 
     // ── Combinational computation ────────────────────────────
 
@@ -97,34 +61,34 @@ module ema_threshold (
     assign err_sigma = $signed({1'b0, abs_diff}) - $signed({1'b0, sigma_fp});
 
     // Extract integer parts (upper PIXEL_WIDTH_OUT bits)
-    assign mu_int    = mu_fp[FP_W-1:K];
-    assign sigma_int = sigma_fp[FP_W-1:K];
+    assign mu_int       = mu_fp[FP_W-1:K_SLOW];
+    assign sigma_int    = sigma_fp[FP_W-1:K_SLOW];
+    assign abs_diff_int = abs_diff[FP_W-1:K_SLOW];
 
-    // T = mu_int + 2*sigma_int  (shift left 1 = x2, no multiplier)
-    // Extra overflow bit detects saturation
+    // big_change if |pixel - mu| > 4*sigma  (shift 2 = x4, no multiplier)
+    assign big_change = (abs_diff_int > {sigma_int[PIXEL_WIDTH_OUT-3:0], 2'b00});
+
+    // T = mu_int + 2*sigma_int, saturated to MAX_VAL
     assign T_sum = {2'b00, mu_int} + {1'b0, sigma_int, 1'b0};
     assign T     = T_sum[PIXEL_WIDTH_OUT+1] || T_sum[PIXEL_WIDTH_OUT] ? MAX_VAL : T_sum[PIXEL_WIDTH_OUT-1:0];
-    
-    // ── EMA register update ──────────────────────────────────
+
+    // ── EMA dual-speed register update ───────────────────────
     always_ff @(posedge clk_i or negedge nreset_i) begin
         if (!nreset_i) begin
-            // Initial estimates for the first frame
-            // 30 and 20 are reasonable starting points for Sobel magnitude
-            mu_fp    <= FP_W'(30) <<< K;
-            sigma_fp <= FP_W'(20) <<< K;
+            mu_fp    <= FP_W'(30) <<< K_SLOW;
+            sigma_fp <= FP_W'(20) <<< K_SLOW;
         end else if (px_rdy_i && start_threshold_i) begin
-            // mu    += diff >>> K     (arithmetic right shift preserves sign)
-            // sigma += err_sigma >>> K
-            mu_fp    <= mu_fp    + (diff     >>> K);
-            sigma_fp <= sigma_fp + (err_sigma >>> K);
+            if (big_change) begin
+                mu_fp    <= mu_fp    + (diff     >>> K_FAST);
+                sigma_fp <= sigma_fp + (err_sigma >>> K_FAST);
+            end else begin
+                mu_fp    <= mu_fp    + (diff     >>> K_SLOW);
+                sigma_fp <= sigma_fp + (err_sigma >>> K_SLOW);
+            end
         end
-        // No reset on end-of-frame:
-        // EMA state carries over as warm start for the next frame
     end
 
     // ── Output register (1 cycle latency) ────────────────────
-    // pixel_in is compared against T computed from the previous cycle
-    // T is stable while mu/sigma update in parallel
     always_ff @(posedge clk_i or negedge nreset_i) begin
         if (!nreset_i) begin
             out_px_o <= ZERO;
@@ -137,7 +101,6 @@ module ema_threshold (
                 else
                     out_px_o <= ZERO;
             end else begin
-                // Threshold disabled -- hold outputs low
                 out_px_o <= ZERO;
                 px_rdy_o <= 1'b0;
             end
